@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-WebApp de Cotización y Extracción de Datos con IA (Versión Final con Imágenes en PDF)
-Aplicación Flask que permite:
-1. Generar plantillas de cotización profesionales con imágenes de producto.
-2. Extraer datos de productos e imágenes de enlaces web de forma robusta.
-3. Calcular impuestos de venta (Sales Tax) con el 7% de Florida como valor por defecto.
+WebApp de Cotización y Extracción de Datos con IA (Versión para Render Free Tier)
+Aplicación Flask que:
+1. Genera plantillas de cotización y las envía directamente para descarga (sin guardar en disco).
+2. Extrae datos de productos e imágenes de enlaces web.
 """
 
-from flask import Flask, render_template_string, request, jsonify, send_from_directory, url_for
+# CAMBIO: Se añaden send_file y el módulo io
+from flask import Flask, render_template_string, request, jsonify, url_for, send_file
+import io
+
 from werkzeug.utils import secure_filename
 import os
 import requests
@@ -31,21 +33,15 @@ from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'una_clave_por_defecto_para_desarrollo')
 
-# --- CONFIGURACIÓN PARA RENDER ---
-# Render montará el disco persistente en /mnt/data
-# Usamos esta ruta base para todos los archivos que deben persistir.
-PERSISTENT_DISK_PATH = '/mnt/data'
-UPLOAD_FOLDER = os.path.join(PERSISTENT_DISK_PATH, 'uploads')
-QUOTES_FOLDER = os.path.join(PERSISTENT_DISK_PATH, 'cotizaciones')
-
-# Los directorios estáticos que están en el código (como el favicon) se mantienen igual.
+# --- CONFIGURACIÓN PARA SISTEMAS DE FICHEROS EFÍMEROS (RENDER FREE TIER) ---
+# Directorio para guardar archivos subidos temporalmente (ej. logos)
+UPLOAD_FOLDER = 'uploads'
 STATIC_FOLDER = 'static'
 STATIC_IMAGES_FOLDER = os.path.join(STATIC_FOLDER, 'images')
 
-# Crear directorios necesarios al iniciar (Render lo hará con el build script)
+# Crear directorios necesarios al iniciar. Estos se borrarán en cada reinicio del servicio.
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(QUOTES_FOLDER, exist_ok=True)
-os.makedirs(STATIC_IMAGES_FOLDER, exist_ok=True) # Este puede quedarse, ya que es para imágenes extraídas temporalmente
+os.makedirs(STATIC_IMAGES_FOLDER, exist_ok=True) 
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
@@ -111,7 +107,6 @@ class WebDataExtractor:
                 if not clean_ext or len(clean_ext) > 5: clean_ext = '.jpg'
                 img_filename = f'extracted_{img_id}{clean_ext}'
                 
-                # Guardamos las imágenes extraídas en una carpeta que no necesita ser persistente
                 img_path_fs = os.path.join(STATIC_IMAGES_FOLDER, img_filename)
                 
                 with open(img_path_fs, 'wb') as f:
@@ -177,11 +172,10 @@ class WebDataExtractor:
         return meta_desc.get('content', 'No description.').strip() if meta_desc else 'No description.'
 
 
-# --- Clase para Generar Cotizaciones en PDF (SIN CAMBIOS) ---
+# --- Clase para Generar Cotizaciones en PDF ---
 class QuoteGenerator:
     """Clase para generar cotizaciones profesionales en formato PDF."""
     
-    # ... (El código de la clase QuoteGenerator no necesita cambios) ...
     def __init__(self):
         self.styles = getSampleStyleSheet()
         self._create_custom_styles()
@@ -200,15 +194,13 @@ class QuoteGenerator:
                            alignment=TA_RIGHT))
         self.styles.add(ParagraphStyle(name='TermsHeader', parent=self.styles['h3'], fontSize=10, spaceBefore=10))
 
-    def generate_quote_pdf(self, quote_data):
+    # CAMBIO: Este método ahora genera el PDF en un buffer de memoria en lugar de un archivo.
+    def generate_quote_pdf_in_memory(self, quote_data):
         try:
+            buffer = io.BytesIO()
             quote_num = quote_data.get('quote_number') or str(uuid.uuid4())[:6].upper()
-            filename = f'quote_{secure_filename(quote_num)}.pdf'
             
-            # Usamos la ruta QUOTES_FOLDER definida globalmente
-            filepath = os.path.join(QUOTES_FOLDER, filename)
-            
-            doc = SimpleDocTemplate(filepath, pagesize=A4, rightMargin=inch * 0.7, leftMargin=inch * 0.7,
+            doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=inch * 0.7, leftMargin=inch * 0.7,
                                     topMargin=inch * 0.7, bottomMargin=inch * 0.7)
             story = []
             logo_path = quote_data.get('company_logo_path')
@@ -288,24 +280,271 @@ class QuoteGenerator:
             if quote_data.get('terms'):
                 story.append(Paragraph("Terms and Conditions:", self.styles['TermsHeader']))
                 story.append(Paragraph(quote_data['terms'].replace('\n', '<br/>'), self.styles['Normal']))
+            
             doc.build(story)
-            return filename
+            buffer.seek(0)
+            return buffer
         except Exception:
             traceback.print_exc()
             raise
 
 
-# --- Instancias globales (SIN CAMBIOS) ---
+# --- Instancias globales ---
 extractor = WebDataExtractor()
 quote_gen = QuoteGenerator()
 
-# --- Template HTML con JavaScript (SIN CAMBIOS) ---
+# --- Template HTML con JavaScript Mejorado ---
+# CAMBIO: El JavaScript se ha modificado para manejar la descarga directa de archivos.
 HTML_TEMPLATE = r"""
-... (El bloque gigante de HTML y JS no necesita cambios) ...
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
+    <title>Quote Generator & Data Extractor</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f0f2f5; color: #333; line-height: 1.6; }
+        .container { display: flex; max-width: 1600px; margin: 20px auto; background: #f0f2f5; gap: 20px; flex-wrap: wrap; }
+        .column { background-color: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); padding: 25px; }
+        .left-column { flex: 1; min-width: 350px; }
+        .right-column { flex: 2; min-width: 500px; }
+        h1 { font-size: 24px; color: #2c3e50; margin-bottom: 20px; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; }
+        h2 { font-size: 20px; color: #34495e; margin-bottom: 15px; margin-top: 25px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-weight: 600; margin-bottom: 5px; font-size: 14px; }
+        input[type="text"], input[type="url"], input[type="email"], input[type="tel"], input[type="date"], input[type="number"], textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; transition: border-color 0.3s; }
+        input:focus, textarea:focus { border-color: #3498db; outline: none; }
+        textarea { resize: vertical; min-height: 80px; }
+        .btn { display: inline-block; padding: 10px 20px; border: none; border-radius: 4px; font-size: 16px; font-weight: bold; color: white; cursor: pointer; text-align: center; transition: background-color 0.3s; }
+        .btn-primary { background-color: #3498db; } .btn-primary:hover { background-color: #2980b9; }
+        .btn-secondary { background-color: #2ecc71; } .btn-secondary:hover { background-color: #27ae60; }
+        .btn-danger { background-color: #e74c3c; padding: 4px 8px; font-size: 12px; } .btn-danger:hover { background-color: #c0392b; }
+        #loader, #pdf-loader { display: none; text-align: center; padding: 20px; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #extracted-data { margin-top: 20px; }
+        .extracted-product { border: 1px solid #e0e0e0; padding: 15px; border-radius: 5px; margin-top: 10px; background: #fafafa; }
+        .images-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 10px; }
+        .images-grid img { max-width: 100%; height: auto; border-radius: 4px; object-fit: cover; border: 1px solid #ddd; padding: 5px;}
+        #quote-items-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        #quote-items-table th, #quote-items-table td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 14px; }
+        #quote-items-table th { background-color: #f2f2f2; font-weight: 600; }
+        #quote-items-table input { padding: 5px; font-size: 14px; max-width: 100px; }
+        #quote-items-table input.desc-input { max-width: none; }
+        #results { margin-top: 20px; padding: 15px; border-radius: 5px; }
+        .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .company-details { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="column left-column">
+            <h1>1. Extract Data from URL</h1>
+            <form id="extract-form">
+                <div class="form-group"><label for="url">Product URL</label><input type="url" id="url" name="url" placeholder="https://www.amazon.com/..." required></div>
+                <button type="submit" class="btn btn-primary">Extract Data</button>
+            </form>
+            <div id="loader"><div class="spinner"></div><p>Extracting data...</p></div>
+            <div id="extraction-results" class="results" style="display:none;"></div>
+            <div id="extracted-data"></div>
+        </div>
+        <div class="column right-column">
+            <h1>2. Generate Quote</h1>
+            <form id="quote-form">
+                <h2>Your Company Details</h2>
+                <div class="company-details">
+                    <div class="form-group"><label for="company_name">Company Name</label><input type="text" id="company_name" value="My Company LLC"></div>
+                    <div class="form-group"><label for="company_phone">Contact Phone</label><input type="tel" id="company_phone" value="+1 (786) 123-4567"></div>
+                    <div class="form-group"><label for="company_address">Address</label><input type="text" id="company_address" value="123 Biscayne Blvd, Miami, FL"></div>
+                    <div class="form-group"><label for="company_email">Email</label><input type="email" id="company_email" value="contact@mycompany.com"></div>
+                    <div class="form-group"><label for="company_logo">Company Logo</label><input type="file" id="company_logo" accept="image/png, image/jpeg"></div>
+                </div>
+                <h2>Client & Quote Details</h2>
+                <div class="company-details">
+                    <div class="form-group"><label for="client_name">Client Name</label><input type="text" id="client_name" required></div>
+                    <div class="form-group"><label for="client_contact">Client Contact / Address</label><input type="text" id="client_contact"></div>
+                    <div class="form-group"><label for="valid_until">Valid Until</label><input type="date" id="valid_until"></div>
+                </div>
+                <h2>Quote Items</h2>
+                <table id="quote-items-table">
+                    <thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Total</th><th>Action</th></tr></thead>
+                    <tbody id="quote-items-body"></tbody>
+                </table>
+                <button type="button" id="add-item-btn" class="btn btn-secondary" style="margin-top:10px;">+ Add Item Manually</button>
+                <h2>Totals & Terms</h2>
+                <div class="company-details">
+                    <div class="form-group"><label for="discount">Discount ($)</label><input type="number" id="discount" value="0" min="0" step="0.01"></div>
+                    <div class="form-group"><label for="tax_rate">Sales Tax (%)</label><input type="number" id="tax_rate" value="7" min="0" step="0.1"></div>
+                </div>
+                <div class="form-group"><label for="terms">Terms and Conditions</label><textarea id="terms">Payment is due within 30 days. Warranty valid for 1 year.</textarea></div>
+                <button type="submit" class="btn btn-primary">Generate Quote PDF</button>
+            </form>
+            <div id="pdf-loader"><div class="spinner"></div><p>Generating PDF...</p></div>
+            <div id="pdf-results" class="results" style="display:none;"></div>
+        </div>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const extractForm = document.getElementById('extract-form');
+            const quoteForm = document.getElementById('quote-form');
+            const loader = document.getElementById('loader');
+            const pdfLoader = document.getElementById('pdf-loader');
+            const extractedDataContainer = document.getElementById('extracted-data');
+            const extractionResults = document.getElementById('extraction-results');
+            const pdfResults = document.getElementById('pdf-results');
+            const addItemBtn = document.getElementById('add-item-btn');
+            const quoteItemsBody = document.getElementById('quote-items-body');
+
+            extractForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                loader.style.display = 'block';
+                extractedDataContainer.innerHTML = '';
+                extractionResults.style.display = 'none';
+                const formData = new FormData(extractForm);
+                const response = await fetch('/extract', { method: 'POST', body: formData });
+                loader.style.display = 'none';
+                const result = await response.json();
+                if (result.status === 'success') { displayExtractedData(result); } 
+                else { showResult(extractionResults, 'Error: ' + result.error, true); }
+            });
+
+            function displayExtractedData(data) {
+                let html = `<h2>Data Extracted</h2>`;
+                if (data.product_details) {
+                    const cost = data.product_details.price;
+                    const sellingPrice = cost / 0.65;
+                    const imagePath = data.images && data.images.length > 0 ? data.images[0].filesystem_path : '';
+                    html += `<div class="extracted-product"><p><strong>Product:</strong> ${data.product_details.title}</p><p><strong>Detected Cost:</strong> $${cost.toFixed(2)}</p><p><strong>Suggested Selling Price:</strong> $${sellingPrice.toFixed(2)}</p></div>`;
+                    addProductToQuote(data.product_details.title.replace(/'/g, "\\'"), cost, imagePath);
+                    showResult(extractionResults, 'Product added to quote automatically.', false);
+                } else {
+                    html += `<p><strong>Title:</strong> ${data.title}</p><p><strong>Description:</strong> ${data.description}</p>`;
+                    showResult(extractionResults, 'Could not detect a specific product. General info extracted.', true);
+                }
+                html += '<h3>Main Image:</h3>';
+                if (data.images && data.images.length > 0) {
+                    html += `<div class="images-grid"><div><img src="${data.images[0].web_path}" alt="Product image" onerror="this.onerror=null; this.src='https://via.placeholder.com/200x200.png?text=Image+Not+Found';"></div></div>`;
+                } else {
+                    html += `<p>No suitable image found.</p>`;
+                }
+                extractedDataContainer.innerHTML = html;
+            }
+
+            addItemBtn.addEventListener('click', () => addNewQuoteItem());
+
+            window.addNewQuoteItem = function(description = '', price = 0, quantity = 1, imageFilesystemPath = '') {
+                const rowId = `item-${Date.now()}`;
+                const row = document.createElement('tr');
+                row.id = rowId;
+                const total = price * quantity;
+                const cleanDescription = description.replace(/"/g, '"');
+                row.innerHTML = `
+                    <td>
+                        <input type="text" class="desc-input" value="${cleanDescription}" placeholder="Product/Service description">
+                        <input type="hidden" class="image-path" value="${imageFilesystemPath}">
+                    </td>
+                    <td><input type="number" class="quantity" value="${quantity}" min="1" oninput="updateItemTotal('${rowId}')"></td>
+                    <td><input type="number" class="price" value="${price.toFixed(2)}" min="0" step="0.01" oninput="updateItemTotal('${rowId}')"></td>
+                    <td class="total">$${total.toFixed(2)}</td>
+                    <td><button type="button" class="btn btn-danger" onclick="this.closest('tr').remove()">X</button></td>`;
+                if (quoteItemsBody.rows.length === 1 && quoteItemsBody.querySelector('.desc-input').value === '') {
+                    quoteItemsBody.innerHTML = '';
+                }
+                quoteItemsBody.appendChild(row);
+            }
+
+            window.updateItemTotal = function(rowId) {
+                const row = document.getElementById(rowId);
+                const quantity = parseFloat(row.querySelector('.quantity').value) || 0;
+                const price = parseFloat(row.querySelector('.price').value) || 0;
+                row.querySelector('.total').textContent = `$${(quantity * price).toFixed(2)}`;
+            }
+
+            window.addProductToQuote = function(title, cost, imagePath) {
+                const sellingPrice = cost / 0.65;
+                addNewQuoteItem(title, sellingPrice, 1, imagePath);
+            };
+
+            // CAMBIO: La lógica de envío del formulario de cotización ha sido modificada.
+            quoteForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                pdfLoader.style.display = 'block';
+                pdfResults.style.display = 'none';
+                
+                const quoteData = new FormData();
+                quoteData.append('company_name', document.getElementById('company_name').value);
+                quoteData.append('company_address', document.getElementById('company_address').value);
+                quoteData.append('company_phone', document.getElementById('company_phone').value);
+                quoteData.append('company_email', document.getElementById('company_email').value);
+                quoteData.append('client_name', document.getElementById('client_name').value);
+                quoteData.append('client_contact', document.getElementById('client_contact').value);
+                quoteData.append('valid_until', document.getElementById('valid_until').value);
+                quoteData.append('discount', document.getElementById('discount').value);
+                quoteData.append('tax_rate', document.getElementById('tax_rate').value);
+                quoteData.append('terms', document.getElementById('terms').value);
+                
+                const logoFile = document.getElementById('company_logo').files[0];
+                if (logoFile) { quoteData.append('company_logo', logoFile); }
+                
+                const items = [];
+                quoteItemsBody.querySelectorAll('tr').forEach(row => {
+                    const description = row.querySelector('.desc-input').value;
+                    if(description) {
+                         items.push({
+                            description: description,
+                            quantity: row.querySelector('.quantity').value,
+                            price: row.querySelector('.price').value,
+                            image_filesystem_path: row.querySelector('.image-path').value
+                        });
+                    }
+                });
+                quoteData.append('items', JSON.stringify(items));
+
+                try {
+                    const response = await fetch('/generate-quote', { method: 'POST', body: quoteData });
+                    pdfLoader.style.display = 'none';
+
+                    if (response.ok) {
+                        // El servidor respondió con un archivo, lo procesamos para descarga.
+                        const blob = await response.blob();
+                        const downloadUrl = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.style.display = 'none';
+                        a.href = downloadUrl;
+                        // Nombre del archivo a descargar.
+                        a.download = 'cotizacion.pdf';
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(downloadUrl);
+                        a.remove();
+                        showResult(pdfResults, 'PDF generado y descarga iniciada.', false);
+                    } else {
+                        // El servidor respondió con un error en formato JSON.
+                        const errorResult = await response.json();
+                        showResult(pdfResults, 'Error generating PDF: ' + errorResult.error, true);
+                    }
+                } catch(err) {
+                    pdfLoader.style.display = 'none';
+                    showResult(pdfResults, 'Connection error: ' + err.message, true);
+                }
+            });
+
+            function showResult(element, message, isError) {
+                element.innerHTML = message;
+                element.className = isError ? 'results error' : 'results success';
+                element.style.display = 'block';
+            }
+            addNewQuoteItem(); 
+        });
+    </script>
+</body>
+</html>
 """
 
-
-# --- RUTAS DE FLASK (CON AJUSTES) ---
+# --- RUTAS DE FLASK ---
 @app.route('/')
 def index():
     return render_template_string(HTML_TEMPLATE)
@@ -320,6 +559,7 @@ def extract_data_route():
     return jsonify(data)
 
 
+# CAMBIO: La ruta ahora genera el PDF en memoria y lo envía como un archivo para descargar.
 @app.route('/generate-quote', methods=['POST'])
 def generate_quote_route():
     try:
@@ -329,7 +569,7 @@ def generate_quote_route():
             logo_file = request.files['company_logo']
             if logo_file.filename != '':
                 filename = secure_filename(logo_file.filename)
-                # Guardamos el logo en la carpeta de subidas persistente
+                # Guardamos el logo en la carpeta de subidas temporal
                 logo_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                 logo_file.save(logo_path)
                 form_data['company_logo_path'] = logo_path
@@ -337,26 +577,26 @@ def generate_quote_route():
         if 'items' in form_data:
             form_data['items'] = json.loads(form_data['items'])
 
-        pdf_filename = quote_gen.generate_quote_pdf(form_data)
+        # Generamos el PDF en un buffer de memoria
+        pdf_buffer = quote_gen.generate_quote_pdf_in_memory(form_data)
         
-        # CAMBIO IMPORTANTE: La URL para ver el PDF ahora apunta a nuestra nueva ruta /quotes/
-        file_url = url_for('get_quote_pdf', filename=pdf_filename, _external=True)
+        # Creamos un nombre de archivo para la descarga
+        client_name = form_data.get('client_name', 'quote')
+        pdf_filename = f'Cotizacion_{secure_filename(client_name)}_{datetime.now().strftime("%Y%m%d")}.pdf'
         
-        return jsonify({'status': 'success', 'file_url': file_url})
+        # Enviamos el buffer como un archivo adjunto
+        return send_file(
+            pdf_buffer,
+            as_attachment=True,
+            download_name=pdf_filename,
+            mimetype='application/pdf'
+        )
     except Exception as e:
         traceback.print_exc()
         return jsonify({'status': 'error', 'error': str(e)}), 500
 
-# NUEVA RUTA: Sirve los PDFs desde el disco persistente
-@app.route('/quotes/<filename>')
-def get_quote_pdf(filename):
-    # Sirve los archivos desde la carpeta QUOTES_FOLDER en el disco persistente
-    return send_from_directory(QUOTES_FOLDER, filename)
+# CAMBIO: La ruta para servir PDFs guardados ya no es necesaria y ha sido eliminada.
 
-
-# CAMBIO FINAL: Eliminar la sección if __name__ == '__main__':
-# Gunicorn se encargará de ejecutar la aplicación, por lo que este bloque ya no es necesario para producción.
-# Puedes dejarlo si quieres seguir probando localmente con "python app.py"
+# Esta sección es para ejecutar la app localmente. Gunicorn la ignorará en producción.
 if __name__ == '__main__':
-    # Para pruebas locales, el host debe ser 0.0.0.0 para que sea accesible
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)), debug=False)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)), debug=True)
