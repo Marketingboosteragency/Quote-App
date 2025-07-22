@@ -194,15 +194,19 @@ class QuoteGenerator:
                            alignment=TA_RIGHT))
         self.styles.add(ParagraphStyle(name='TermsHeader', parent=self.styles['h3'], fontSize=10, spaceBefore=10))
 
-    # CAMBIO: Este método ahora genera el PDF en un buffer de memoria en lugar de un archivo.
+    # CAMBIO: Este método ahora genera el PDF en un buffer de memoria.
     def generate_quote_pdf_in_memory(self, quote_data):
         try:
+            # Usamos un buffer en memoria en lugar de un archivo físico
             buffer = io.BytesIO()
             quote_num = quote_data.get('quote_number') or str(uuid.uuid4())[:6].upper()
             
+            # El documento de ReportLab ahora escribe en el buffer
             doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=inch * 0.7, leftMargin=inch * 0.7,
                                     topMargin=inch * 0.7, bottomMargin=inch * 0.7)
             story = []
+            
+            # La lógica para construir el PDF es la misma que antes
             logo_path = quote_data.get('company_logo_path')
             logo_img = Image(logo_path, width=1.5 * inch, height=1.5 * inch) if logo_path and os.path.exists(
                 logo_path) else None
@@ -231,7 +235,6 @@ class QuoteGenerator:
                     total_item = quantity * price
                     subtotal += total_item
                     description_p = Paragraph(item.get('description', ''), self.styles['Normal'])
-
                     item_image = ''
                     image_fs_path = item.get('image_filesystem_path')
                     if image_fs_path and os.path.exists(image_fs_path):
@@ -241,20 +244,18 @@ class QuoteGenerator:
                         except Exception as e:
                             print(f"Error processing image for PDF item: {e}")
                             item_image = 'N/A'
-
                     table_data.append(
                         [item_image, description_p, str(quantity), f"${price:,.2f}", f"${total_item:,.2f}"])
-
                 items_table = Table(table_data, colWidths=[0.7 * inch, 3.1 * inch, 0.7 * inch, 1 * inch, 1 * inch],
                                     repeatRows=1)
                 items_table.setStyle(TableStyle([
                     ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#34495e')),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'), ('FONTSIZE', (0, 0), (-1, 0), 10),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12), ('TOPPADDING', (0, 0), (-1, 0), 12),
-                    ('GRID', (0, 0), (-1, -1), 0.5, colors.grey), ('ALIGN', (1, 1), (1, -1), 'LEFT'),
-                    ('ALIGN', (2, 1), (-1, -1), 'RIGHT'), ('PADDING', (0, 0), (-1, -1), 5)]))
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke), ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 10), ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('TOPPADDING', (0, 0), (-1, 0), 12), ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                    ('ALIGN', (1, 1), (1, -1), 'LEFT'), ('ALIGN', (2, 1), (-1, -1), 'RIGHT'),
+                    ('PADDING', (0, 0), (-1, -1), 5)]))
                 story.append(items_table)
                 discount = float(quote_data.get('discount', 0))
                 tax_rate = float(quote_data.get('tax_rate', 7)) / 100
@@ -272,8 +273,9 @@ class QuoteGenerator:
                 grand_total_table = Table(grand_total_data, colWidths=[1.5 * inch, 1 * inch])
                 grand_total_table.setStyle(TableStyle(
                     [('ALIGN', (0, 0), (-1, -1), 'RIGHT'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                     ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#eeeeee')), ('TOPPADDING', (0, 0), (-1, -1), 10),
-                     ('BOTTOMPADDING', (0, 0), (-1, -1), 10), ('LEFTPADDING', (0, 0), (-1, -1), 20)]))
+                     ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#eeeeee')),
+                     ('TOPPADDING', (0, 0), (-1, -1), 10), ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+                     ('LEFTPADDING', (0, 0), (-1, -1), 20)]))
                 summary_table = Table([[totals_table], [grand_total_table]], style=[('ALIGN', (0, 0), (0, 0), 'RIGHT')])
                 story.append(summary_table)
             story.append(Spacer(1, 30))
@@ -281,20 +283,21 @@ class QuoteGenerator:
                 story.append(Paragraph("Terms and Conditions:", self.styles['TermsHeader']))
                 story.append(Paragraph(quote_data['terms'].replace('\n', '<br/>'), self.styles['Normal']))
             
+            # Construye el PDF en el buffer
             doc.build(story)
+            # Regresa al inicio del buffer para que pueda ser leído
             buffer.seek(0)
             return buffer
         except Exception:
             traceback.print_exc()
             raise
 
-
 # --- Instancias globales ---
 extractor = WebDataExtractor()
 quote_gen = QuoteGenerator()
 
-# --- Template HTML con JavaScript Mejorado ---
-# CAMBIO: El JavaScript se ha modificado para manejar la descarga directa de archivos.
+# --- Template HTML con JavaScript ---
+# NOTA: El JavaScript ha sido modificado para gestionar la descarga de archivos.
 HTML_TEMPLATE = r"""
 <!DOCTYPE html>
 <html lang="en">
@@ -468,7 +471,6 @@ HTML_TEMPLATE = r"""
                 addNewQuoteItem(title, sellingPrice, 1, imagePath);
             };
 
-            // CAMBIO: La lógica de envío del formulario de cotización ha sido modificada.
             quoteForm.addEventListener('submit', async function(e) {
                 e.preventDefault();
                 pdfLoader.style.display = 'block';
@@ -508,21 +510,30 @@ HTML_TEMPLATE = r"""
                     pdfLoader.style.display = 'none';
 
                     if (response.ok) {
-                        // El servidor respondió con un archivo, lo procesamos para descarga.
                         const blob = await response.blob();
                         const downloadUrl = window.URL.createObjectURL(blob);
                         const a = document.createElement('a');
                         a.style.display = 'none';
                         a.href = downloadUrl;
-                        // Nombre del archivo a descargar.
-                        a.download = 'cotizacion.pdf';
+                        
+                        // Extraer el nombre del archivo de la cabecera Content-Disposition
+                        const disposition = response.headers.get('Content-Disposition');
+                        let filename = 'cotizacion.pdf';
+                        if (disposition && disposition.indexOf('attachment') !== -1) {
+                            const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+                            const matches = filenameRegex.exec(disposition);
+                            if (matches != null && matches[1]) { 
+                                filename = matches[1].replace(/['"]/g, '');
+                            }
+                        }
+
+                        a.download = filename;
                         document.body.appendChild(a);
                         a.click();
                         window.URL.revokeObjectURL(downloadUrl);
                         a.remove();
                         showResult(pdfResults, 'PDF generado y descarga iniciada.', false);
                     } else {
-                        // El servidor respondió con un error en formato JSON.
                         const errorResult = await response.json();
                         showResult(pdfResults, 'Error generating PDF: ' + errorResult.error, true);
                     }
@@ -584,7 +595,7 @@ def generate_quote_route():
         client_name = form_data.get('client_name', 'quote')
         pdf_filename = f'Cotizacion_{secure_filename(client_name)}_{datetime.now().strftime("%Y%m%d")}.pdf'
         
-        # Enviamos el buffer como un archivo adjunto
+        # Enviamos el buffer como un archivo adjunto para que el navegador lo descargue
         return send_file(
             pdf_buffer,
             as_attachment=True,
@@ -593,10 +604,12 @@ def generate_quote_route():
         )
     except Exception as e:
         traceback.print_exc()
+        # En caso de error, devolvemos un JSON para que el frontend lo muestre
         return jsonify({'status': 'error', 'error': str(e)}), 500
 
 # CAMBIO: La ruta para servir PDFs guardados ya no es necesaria y ha sido eliminada.
 
 # Esta sección es para ejecutar la app localmente. Gunicorn la ignorará en producción.
 if __name__ == '__main__':
+    # El debug=True es útil para el desarrollo local
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)), debug=True)
