@@ -6,7 +6,7 @@ Aplicación Flask que:
 2. Extrae datos de productos e imágenes de enlaces web.
 """
 
-# CAMBIO: Se añaden send_file y el módulo io
+# Se añaden send_file y el módulo io
 from flask import Flask, render_template_string, request, jsonify, url_for, send_file
 import io
 
@@ -194,7 +194,6 @@ class QuoteGenerator:
                            alignment=TA_RIGHT))
         self.styles.add(ParagraphStyle(name='TermsHeader', parent=self.styles['h3'], fontSize=10, spaceBefore=10))
 
-    # CAMBIO: Este método ahora genera el PDF en un buffer de memoria.
     def generate_quote_pdf_in_memory(self, quote_data):
         try:
             # Usamos un buffer en memoria en lugar de un archivo físico
@@ -206,25 +205,30 @@ class QuoteGenerator:
                                     topMargin=inch * 0.7, bottomMargin=inch * 0.7)
             story = []
             
-            # La lógica para construir el PDF es la misma que antes
+            # La lógica para construir el PDF es la misma
             logo_path = quote_data.get('company_logo_path')
             logo_img = Image(logo_path, width=1.5 * inch, height=1.5 * inch) if logo_path and os.path.exists(
                 logo_path) else None
             if logo_img: logo_img.hAlign = 'LEFT'
+            
             company_info_text = f"<b>{quote_data.get('company_name', 'Your Company Name')}</b><br/>{quote_data.get('company_address', 'Your Company Address')}<br/>Tel: {quote_data.get('company_phone', 'N/A')}<br/>Email: {quote_data.get('company_email', 'N/A')}"
             header_right_text = f"<b>QUOTE</b><br/><br/><b>DATE:</b> {datetime.now().strftime('%Y-%m-%d')}<br/><b>QUOTE #:</b> {quote_num}<br/><b>VALID UNTIL:</b> {quote_data.get('valid_until', 'N/A')}"
-            header_table = Table([[logo_img if logo_img else Paragraph(company_info_text, self.styles['HeaderInfo']),
-                                   Paragraph(header_right_text, self.styles['ClientInfo'])]],
-                                 colWidths=[3.5 * inch, 3 * inch])
+            
+            header_table_content = [logo_img if logo_img else Paragraph(company_info_text, self.styles['HeaderInfo']),
+                                    Paragraph(header_right_text, self.styles['ClientInfo'])]
+            
+            header_table = Table([header_table_content], colWidths=[3.5 * inch, 3 * inch])
             header_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP'), ('LEFTPADDING', (0, 0), (0, 0), 0)]))
             story.append(header_table)
             story.append(Spacer(1, 20))
+            
             client_info = f"<b>BILL TO:</b><br/>{quote_data.get('client_name', 'Client Name')}<br/>{quote_data.get('client_contact', '')}"
             client_table = Table([[Paragraph(client_info, self.styles['HeaderInfo'])]], colWidths=[6.5 * inch],
                                  style=[('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#dddddd')),
                                         ('PADDING', (0, 0), (-1, -1), 10)])
             story.append(client_table)
             story.append(Spacer(1, 25))
+            
             items = quote_data.get('items', [])
             if items:
                 table_data = [['IMAGE', 'DESCRIPTION', 'QTY', 'UNIT PRICE', 'TOTAL']]
@@ -246,8 +250,8 @@ class QuoteGenerator:
                             item_image = 'N/A'
                     table_data.append(
                         [item_image, description_p, str(quantity), f"${price:,.2f}", f"${total_item:,.2f}"])
-                items_table = Table(table_data, colWidths=[0.7 * inch, 3.1 * inch, 0.7 * inch, 1 * inch, 1 * inch],
-                                    repeatRows=1)
+                
+                items_table = Table(table_data, colWidths=[0.7 * inch, 3.1 * inch, 0.7 * inch, 1 * inch, 1 * inch], repeatRows=1)
                 items_table.setStyle(TableStyle([
                     ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#34495e')),
                     ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke), ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
@@ -257,17 +261,20 @@ class QuoteGenerator:
                     ('ALIGN', (1, 1), (1, -1), 'LEFT'), ('ALIGN', (2, 1), (-1, -1), 'RIGHT'),
                     ('PADDING', (0, 0), (-1, -1), 5)]))
                 story.append(items_table)
+                
                 discount = float(quote_data.get('discount', 0))
                 tax_rate = float(quote_data.get('tax_rate', 7)) / 100
                 subtotal_after_discount = subtotal - discount
                 tax_amount = subtotal_after_discount * tax_rate
                 grand_total = subtotal_after_discount + tax_amount
+                
                 totals_data = [['Subtotal:', f'${subtotal:,.2f}'], ['Discount:', f'-${discount:,.2f}'],
                                [f'Sales Tax ({tax_rate * 100:.1f}%):', f'${tax_amount:,.2f}']]
                 totals_table = Table(totals_data, colWidths=[1.5 * inch, 1 * inch])
                 totals_table.setStyle(TableStyle(
                     [('ALIGN', (0, 0), (-1, -1), 'RIGHT'), ('FONTSIZE', (0, 0), (-1, -1), 10),
                      ('LEFTPADDING', (0, 0), (-1, -1), 20)]))
+                
                 grand_total_data = [[Paragraph('TOTAL:', self.styles['GrandTotal']),
                                      Paragraph(f'${grand_total:,.2f}', self.styles['GrandTotal'])]]
                 grand_total_table = Table(grand_total_data, colWidths=[1.5 * inch, 1 * inch])
@@ -276,16 +283,16 @@ class QuoteGenerator:
                      ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#eeeeee')),
                      ('TOPPADDING', (0, 0), (-1, -1), 10), ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
                      ('LEFTPADDING', (0, 0), (-1, -1), 20)]))
+                
                 summary_table = Table([[totals_table], [grand_total_table]], style=[('ALIGN', (0, 0), (0, 0), 'RIGHT')])
                 story.append(summary_table)
+            
             story.append(Spacer(1, 30))
             if quote_data.get('terms'):
                 story.append(Paragraph("Terms and Conditions:", self.styles['TermsHeader']))
                 story.append(Paragraph(quote_data['terms'].replace('\n', '<br/>'), self.styles['Normal']))
             
-            # Construye el PDF en el buffer
             doc.build(story)
-            # Regresa al inicio del buffer para que pueda ser leído
             buffer.seek(0)
             return buffer
         except Exception:
@@ -297,7 +304,6 @@ extractor = WebDataExtractor()
 quote_gen = QuoteGenerator()
 
 # --- Template HTML con JavaScript ---
-# NOTA: El JavaScript ha sido modificado para gestionar la descarga de archivos.
 HTML_TEMPLATE = r"""
 <!DOCTYPE html>
 <html lang="en">
@@ -332,7 +338,7 @@ HTML_TEMPLATE = r"""
         .images-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 10px; }
         .images-grid img { max-width: 100%; height: auto; border-radius: 4px; object-fit: cover; border: 1px solid #ddd; padding: 5px;}
         #quote-items-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        #quote-items-table th, #quote-items-table td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 14px; }
+        #quote-items-table th, #quote-items-table td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 14px; vertical-align: middle; }
         #quote-items-table th { background-color: #f2f2f2; font-weight: 600; }
         #quote-items-table input { padding: 5px; font-size: 14px; max-width: 100px; }
         #quote-items-table input.desc-input { max-width: none; }
@@ -418,10 +424,9 @@ HTML_TEMPLATE = r"""
                 let html = `<h2>Data Extracted</h2>`;
                 if (data.product_details) {
                     const cost = data.product_details.price;
-                    const sellingPrice = cost / 0.65;
                     const imagePath = data.images && data.images.length > 0 ? data.images[0].filesystem_path : '';
-                    html += `<div class="extracted-product"><p><strong>Product:</strong> ${data.product_details.title}</p><p><strong>Detected Cost:</strong> $${cost.toFixed(2)}</p><p><strong>Suggested Selling Price:</strong> $${sellingPrice.toFixed(2)}</p></div>`;
-                    addProductToQuote(data.product_details.title.replace(/'/g, "\\'"), cost, imagePath);
+                    html += `<div class="extracted-product"><p><strong>Product:</strong> ${data.product_details.title}</p><p><strong>Detected Cost:</strong> $${cost.toFixed(2)}</p></div>`;
+                    addProductToQuote(data.product_details.title, cost, imagePath);
                     showResult(extractionResults, 'Product added to quote automatically.', false);
                 } else {
                     html += `<p><strong>Title:</strong> ${data.title}</p><p><strong>Description:</strong> ${data.description}</p>`;
@@ -438,7 +443,7 @@ HTML_TEMPLATE = r"""
 
             addItemBtn.addEventListener('click', () => addNewQuoteItem());
 
-            window.addNewQuoteItem = function(description = '', price = 0, quantity = 1, imageFilesystemPath = '') {
+            function addNewQuoteItem(description = '', price = 0, quantity = 1, imageFilesystemPath = '') {
                 const rowId = `item-${Date.now()}`;
                 const row = document.createElement('tr');
                 row.id = rowId;
@@ -453,7 +458,10 @@ HTML_TEMPLATE = r"""
                     <td><input type="number" class="price" value="${price.toFixed(2)}" min="0" step="0.01" oninput="updateItemTotal('${rowId}')"></td>
                     <td class="total">$${total.toFixed(2)}</td>
                     <td><button type="button" class="btn btn-danger" onclick="this.closest('tr').remove()">X</button></td>`;
-                if (quoteItemsBody.rows.length === 1 && quoteItemsBody.querySelector('.desc-input').value === '') {
+                
+                // Si la primera fila está vacía, la reemplazamos
+                const firstRow = quoteItemsBody.querySelector('tr');
+                if (firstRow && firstRow.querySelector('.desc-input').value === '') {
                     quoteItemsBody.innerHTML = '';
                 }
                 quoteItemsBody.appendChild(row);
@@ -466,8 +474,8 @@ HTML_TEMPLATE = r"""
                 row.querySelector('.total').textContent = `$${(quantity * price).toFixed(2)}`;
             }
 
-            window.addProductToQuote = function(title, cost, imagePath) {
-                const sellingPrice = cost / 0.65;
+            function addProductToQuote(title, cost, imagePath) {
+                const sellingPrice = cost / 0.65; // Margen de ganancia del 35%
                 addNewQuoteItem(title, sellingPrice, 1, imagePath);
             };
 
@@ -516,7 +524,6 @@ HTML_TEMPLATE = r"""
                         a.style.display = 'none';
                         a.href = downloadUrl;
                         
-                        // Extraer el nombre del archivo de la cabecera Content-Disposition
                         const disposition = response.headers.get('Content-Disposition');
                         let filename = 'cotizacion.pdf';
                         if (disposition && disposition.indexOf('attachment') !== -1) {
@@ -548,6 +555,8 @@ HTML_TEMPLATE = r"""
                 element.className = isError ? 'results error' : 'results success';
                 element.style.display = 'block';
             }
+            
+            // Inicia con una fila vacía para añadir productos manualmente
             addNewQuoteItem(); 
         });
     </script>
@@ -570,7 +579,6 @@ def extract_data_route():
     return jsonify(data)
 
 
-# CAMBIO: La ruta ahora genera el PDF en memoria y lo envía como un archivo para descargar.
 @app.route('/generate-quote', methods=['POST'])
 def generate_quote_route():
     try:
@@ -580,7 +588,6 @@ def generate_quote_route():
             logo_file = request.files['company_logo']
             if logo_file.filename != '':
                 filename = secure_filename(logo_file.filename)
-                # Guardamos el logo en la carpeta de subidas temporal
                 logo_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                 logo_file.save(logo_path)
                 form_data['company_logo_path'] = logo_path
@@ -588,14 +595,11 @@ def generate_quote_route():
         if 'items' in form_data:
             form_data['items'] = json.loads(form_data['items'])
 
-        # Generamos el PDF en un buffer de memoria
         pdf_buffer = quote_gen.generate_quote_pdf_in_memory(form_data)
         
-        # Creamos un nombre de archivo para la descarga
         client_name = form_data.get('client_name', 'quote')
         pdf_filename = f'Cotizacion_{secure_filename(client_name)}_{datetime.now().strftime("%Y%m%d")}.pdf'
         
-        # Enviamos el buffer como un archivo adjunto para que el navegador lo descargue
         return send_file(
             pdf_buffer,
             as_attachment=True,
@@ -604,12 +608,10 @@ def generate_quote_route():
         )
     except Exception as e:
         traceback.print_exc()
-        # En caso de error, devolvemos un JSON para que el frontend lo muestre
         return jsonify({'status': 'error', 'error': str(e)}), 500
 
-# CAMBIO: La ruta para servir PDFs guardados ya no es necesaria y ha sido eliminada.
 
-# Esta sección es para ejecutar la app localmente. Gunicorn la ignorará en producción.
+# Esta sección es para ejecutar la app localmente.
 if __name__ == '__main__':
-    # El debug=True es útil para el desarrollo local
+    # debug=True es útil para el desarrollo local, pero debe estar en False en producción.
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)), debug=True)
