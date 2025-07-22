@@ -3,7 +3,7 @@
 set -o errexit
 
 # Instalar las dependencias de Python
-pip install -r requirements.txt
+pip install -r requirements3.txt
 
 # Crear los directorios en el disco persistente.
 # La ruta /mnt/data es donde Render monta el disco.
