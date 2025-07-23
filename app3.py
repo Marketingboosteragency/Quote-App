@@ -196,16 +196,13 @@ class QuoteGenerator:
 
     def generate_quote_pdf_in_memory(self, quote_data):
         try:
-            # Usamos un buffer en memoria en lugar de un archivo físico
             buffer = io.BytesIO()
             quote_num = quote_data.get('quote_number') or str(uuid.uuid4())[:6].upper()
             
-            # El documento de ReportLab ahora escribe en el buffer
             doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=inch * 0.7, leftMargin=inch * 0.7,
                                     topMargin=inch * 0.7, bottomMargin=inch * 0.7)
             story = []
             
-            # La lógica para construir el PDF es la misma
             logo_path = quote_data.get('company_logo_path')
             logo_img = Image(logo_path, width=1.5 * inch, height=1.5 * inch) if logo_path and os.path.exists(
                 logo_path) else None
@@ -304,6 +301,7 @@ extractor = WebDataExtractor()
 quote_gen = QuoteGenerator()
 
 # --- Template HTML con JavaScript ---
+# CAMBIO: Se ha añadido 'required' a los campos y se han eliminado los valores por defecto.
 HTML_TEMPLATE = r"""
 <!DOCTYPE html>
 <html lang="en">
@@ -325,6 +323,7 @@ HTML_TEMPLATE = r"""
         label { display: block; font-weight: 600; margin-bottom: 5px; font-size: 14px; }
         input[type="text"], input[type="url"], input[type="email"], input[type="tel"], input[type="date"], input[type="number"], textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; transition: border-color 0.3s; }
         input:focus, textarea:focus { border-color: #3498db; outline: none; }
+        input:required:invalid { border-color: #e74c3c; } /* Estilo para campos requeridos no válidos */
         textarea { resize: vertical; min-height: 80px; }
         .btn { display: inline-block; padding: 10px 20px; border: none; border-radius: 4px; font-size: 16px; font-weight: bold; color: white; cursor: pointer; text-align: center; transition: background-color 0.3s; }
         .btn-primary { background-color: #3498db; } .btn-primary:hover { background-color: #2980b9; }
@@ -365,17 +364,17 @@ HTML_TEMPLATE = r"""
             <form id="quote-form">
                 <h2>Your Company Details</h2>
                 <div class="company-details">
-                    <div class="form-group"><label for="company_name">Company Name</label><input type="text" id="company_name" value="My Company LLC"></div>
-                    <div class="form-group"><label for="company_phone">Contact Phone</label><input type="tel" id="company_phone" value="+1 (786) 123-4567"></div>
-                    <div class="form-group"><label for="company_address">Address</label><input type="text" id="company_address" value="123 Biscayne Blvd, Miami, FL"></div>
-                    <div class="form-group"><label for="company_email">Email</label><input type="email" id="company_email" value="contact@mycompany.com"></div>
+                    <div class="form-group"><label for="company_name">Company Name</label><input type="text" id="company_name" required></div>
+                    <div class="form-group"><label for="company_phone">Contact Phone</label><input type="tel" id="company_phone" required></div>
+                    <div class="form-group"><label for="company_address">Address</label><input type="text" id="company_address" required></div>
+                    <div class="form-group"><label for="company_email">Email</label><input type="email" id="company_email" required></div>
                     <div class="form-group"><label for="company_logo">Company Logo</label><input type="file" id="company_logo" accept="image/png, image/jpeg"></div>
                 </div>
                 <h2>Client & Quote Details</h2>
                 <div class="company-details">
                     <div class="form-group"><label for="client_name">Client Name</label><input type="text" id="client_name" required></div>
-                    <div class="form-group"><label for="client_contact">Client Contact / Address</label><input type="text" id="client_contact"></div>
-                    <div class="form-group"><label for="valid_until">Valid Until</label><input type="date" id="valid_until"></div>
+                    <div class="form-group"><label for="client_contact">Client Contact / Address</label><input type="text" id="client_contact" required></div>
+                    <div class="form-group"><label for="valid_until">Valid Until</label><input type="date" id="valid_until" required></div>
                 </div>
                 <h2>Quote Items</h2>
                 <table id="quote-items-table">
@@ -459,7 +458,6 @@ HTML_TEMPLATE = r"""
                     <td class="total">$${total.toFixed(2)}</td>
                     <td><button type="button" class="btn btn-danger" onclick="this.closest('tr').remove()">X</button></td>`;
                 
-                // Si la primera fila está vacía, la reemplazamos
                 const firstRow = quoteItemsBody.querySelector('tr');
                 if (firstRow && firstRow.querySelector('.desc-input').value === '') {
                     quoteItemsBody.innerHTML = '';
@@ -475,29 +473,21 @@ HTML_TEMPLATE = r"""
             }
 
             function addProductToQuote(title, cost, imagePath) {
-                const sellingPrice = cost / 0.65; // Margen de ganancia del 35%
+                const sellingPrice = cost / 0.65;
                 addNewQuoteItem(title, sellingPrice, 1, imagePath);
             };
 
             quoteForm.addEventListener('submit', async function(e) {
+                // La validación del navegador se encarga de los campos vacíos antes de enviar.
+                if (!quoteForm.checkValidity()) {
+                    quoteForm.reportValidity();
+                    return;
+                }
                 e.preventDefault();
                 pdfLoader.style.display = 'block';
                 pdfResults.style.display = 'none';
                 
-                const quoteData = new FormData();
-                quoteData.append('company_name', document.getElementById('company_name').value);
-                quoteData.append('company_address', document.getElementById('company_address').value);
-                quoteData.append('company_phone', document.getElementById('company_phone').value);
-                quoteData.append('company_email', document.getElementById('company_email').value);
-                quoteData.append('client_name', document.getElementById('client_name').value);
-                quoteData.append('client_contact', document.getElementById('client_contact').value);
-                quoteData.append('valid_until', document.getElementById('valid_until').value);
-                quoteData.append('discount', document.getElementById('discount').value);
-                quoteData.append('tax_rate', document.getElementById('tax_rate').value);
-                quoteData.append('terms', document.getElementById('terms').value);
-                
-                const logoFile = document.getElementById('company_logo').files[0];
-                if (logoFile) { quoteData.append('company_logo', logoFile); }
+                const quoteData = new FormData(quoteForm);
                 
                 const items = [];
                 quoteItemsBody.querySelectorAll('tr').forEach(row => {
@@ -542,7 +532,7 @@ HTML_TEMPLATE = r"""
                         showResult(pdfResults, 'PDF generado y descarga iniciada.', false);
                     } else {
                         const errorResult = await response.json();
-                        showResult(pdfResults, 'Error generating PDF: ' + errorResult.error, true);
+                        showResult(pdfResults, 'Error: ' + errorResult.error, true);
                     }
                 } catch(err) {
                     pdfLoader.style.display = 'none';
@@ -556,7 +546,6 @@ HTML_TEMPLATE = r"""
                 element.style.display = 'block';
             }
             
-            // Inicia con una fila vacía para añadir productos manualmente
             addNewQuoteItem(); 
         });
     </script>
@@ -579,10 +568,26 @@ def extract_data_route():
     return jsonify(data)
 
 
+# CAMBIO: Se ha añadido la validación de campos obligatorios en el backend.
 @app.route('/generate-quote', methods=['POST'])
 def generate_quote_route():
     try:
         form_data = request.form.to_dict()
+
+        # --- VALIDACIÓN EN EL BACKEND ---
+        required_fields = ['company_name', 'company_phone', 'company_address', 'company_email', 
+                           'client_name', 'client_contact', 'valid_until']
+        
+        missing_fields = [field for field in required_fields if not form_data.get(field)]
+        
+        if missing_fields:
+            # Si faltan campos, devuelve un error 400 (Bad Request)
+            return jsonify({
+                'status': 'error', 
+                'error': f'Por favor, complete los siguientes campos obligatorios: {", ".join(missing_fields)}'
+            }), 400
+        # --- FIN DE LA VALIDACIÓN ---
+
         logo_path = None
         if 'company_logo' in request.files:
             logo_file = request.files['company_logo']
@@ -594,6 +599,8 @@ def generate_quote_route():
         
         if 'items' in form_data:
             form_data['items'] = json.loads(form_data['items'])
+        else:
+            form_data['items'] = [] # Asegurarse de que 'items' exista
 
         pdf_buffer = quote_gen.generate_quote_pdf_in_memory(form_data)
         
@@ -613,5 +620,4 @@ def generate_quote_route():
 
 # Esta sección es para ejecutar la app localmente.
 if __name__ == '__main__':
-    # debug=True es útil para el desarrollo local, pero debe estar en False en producción.
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)), debug=True)
