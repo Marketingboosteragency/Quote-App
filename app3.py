@@ -47,7 +47,6 @@ class WebDataExtractor:
     """Clase mejorada para extraer datos de páginas web usando ScraperAPI para evitar bloqueos."""
     
     def __init__(self):
-        # La sesión de requests ahora se usará para descargar imágenes, no para la página principal.
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
@@ -108,20 +107,18 @@ class WebDataExtractor:
         return []
 
     def extract_web_data(self, url):
-        # --- ESTA ES LA SECCIÓN MODIFICADA ---
         API_KEY = os.environ.get('SCRAPER_API_KEY')
         if not API_KEY:
             return {'error': 'ScraperAPI key not configured on the server.', 'status': 'error'}
 
-        # Construimos la petición a ScraperAPI
         scraper_url = 'http://api.scraperapi.com'
         payload = {'api_key': API_KEY, 'url': url}
 
         try:
-            response = requests.get(scraper_url, params=payload, timeout=60) # Timeout más largo
+            response = requests.get(scraper_url, params=payload, timeout=60)
             response.raise_for_status()
 
-            soup = BeautifulSoup(response.content, 'lxml') # Usamos lxml que es más robusto
+            soup = BeautifulSoup(response.content, 'lxml')
 
             data = {
                 'url': url, 
@@ -149,7 +146,7 @@ class WebDataExtractor:
         return meta_desc.get('content', 'No description.').strip() if meta_desc else 'No description.'
 
 
-# --- Clase para Generar Cotizaciones en PDF (SIN CAMBIOS) ---
+# --- Clase para Generar Cotizaciones en PDF ---
 class QuoteGenerator:
     """Clase para generar cotizaciones profesionales en formato PDF."""
     def __init__(self):
@@ -203,7 +200,21 @@ class QuoteGenerator:
                             item_image = 'N/A'
                     table_data.append([item_image, description_p, str(quantity), f"${price:,.2f}", f"${total_item:,.2f}"])
                 items_table = Table(table_data, colWidths=[0.7 * inch, 3.1 * inch, 0.7 * inch, 1 * inch, 1 * inch], repeatRows=1)
-                items_table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#34495e')), ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitespoke), ('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'), ('FONTSIZE', (0, 0), (-1, 0), 10), ('BOTTOMPADDING', (0, 0), (-1, 0), 12), ('TOPPADDING', (0, 0), (-1, 0), 12), ('GRID', (0, 0), (-1, -1), 0.5, colors.grey), ('ALIGN', (1, 1), (1, -1), 'LEFT'), ('ALIGN', (2, 1), (-1, -1), 'RIGHT'), ('PADDING', (0, 0), (-1, -1), 5)]))
+                # --- CORRECCIÓN DEL TYPO AQUÍ ---
+                items_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#34495e')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke), # CAMBIADO de whitespoke a whitesmoke
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 10),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('TOPPADDING', (0, 0), (-1, 0), 12),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                    ('ALIGN', (1, 1), (1, -1), 'LEFT'),
+                    ('ALIGN', (2, 1), (-1, -1), 'RIGHT'),
+                    ('PADDING', (0, 0), (-1, -1), 5)
+                ]))
                 story.append(items_table)
                 discount = float(quote_data.get('discount', 0))
                 tax_rate = float(quote_data.get('tax_rate', 7)) / 100
@@ -233,7 +244,7 @@ class QuoteGenerator:
 extractor = WebDataExtractor()
 quote_gen = QuoteGenerator()
 
-# --- Template HTML con JavaScript (SIN CAMBIOS) ---
+# --- Template HTML con JavaScript ---
 HTML_TEMPLATE = r"""
 <!DOCTYPE html>
 <html lang="en">
