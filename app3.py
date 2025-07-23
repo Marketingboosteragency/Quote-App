@@ -3,7 +3,7 @@
 WebApp de Cotización y Extracción de Datos con IA (Versión Final para Render Free Tier)
 Aplicación Flask que:
 1. Genera plantillas de cotización y las envía directamente para descarga (sin guardar en disco).
-2. Extrae datos de productos e imágenes de enlaces web de forma robusta.
+2. Extrae datos de productos e imágenes de enlaces web de forma robusta usando un servicio de scraping.
 """
 
 from flask import Flask, render_template_string, request, jsonify, url_for, send_file
@@ -42,95 +42,61 @@ os.makedirs(STATIC_IMAGES_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 
-# --- Clase para Extracción de Datos Web (MEJORADA) ---
+# --- Clase para Extracción de Datos Web (ACTUALIZADA PARA USAR SCRAPERAPI) ---
 class WebDataExtractor:
-    """Clase mejorada para extraer datos de páginas web, con cabeceras robustas y selectores específicos para Amazon, MercadoLibre y Walmart."""
+    """Clase mejorada para extraer datos de páginas web usando ScraperAPI para evitar bloqueos."""
     
     def __init__(self):
+        # La sesión de requests ahora se usará para descargar imágenes, no para la página principal.
         self.session = requests.Session()
-        # Se añaden más cabeceras para simular un navegador real.
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-            'Accept-Language': 'en-US,en;q=0.9,es;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'DNT': '1',
-            'Upgrade-Insecure-Requests': '1',
         })
 
     def _extract_product_details(self, soup):
         try:
-            # Se añaden selectores específicos para Walmart al principio de la lista.
-            title_selectors = [
-                'h1[itemprop="name"]',  # Walmart Title
-                '#productTitle',       # Amazon Title
-                '.ui-pdp-title',       # MercadoLibre Title
-                'h1'                   # Generic Fallback
-            ]
-            title = None
-            for selector in title_selectors:
-                title_element = soup.select_one(selector)
-                if title_element:
-                    title = title_element.get_text(strip=True)
-                    break
+            title_selectors = ['h1[itemprop="name"]', '#productTitle', '.ui-pdp-title', 'h1']
+            title = next((soup.select_one(s).get_text(strip=True) for s in title_selectors if soup.select_one(s)), None)
 
-            # Se añade selector de precio para Walmart.
-            price_selectors = [
-                'span[itemprop="price"]', # Walmart Price
-                'span.a-offscreen',       # Amazon Price
-                '.andes-money-amount.ui-pdp-price__part .andes-money-amount__fraction', # ML Price
-                '.a-price-whole'          # Amazon Price Fallback
-            ]
+            price_selectors = ['span[itemprop="price"]', 'span.a-offscreen', '.andes-money-amount__fraction', '.a-price-whole']
             price = None
             for selector in price_selectors:
-                price_element = soup.select_one(selector)
-                if price_element:
-                    price_str = price_element.get('content') or price_element.get_text(strip=True)
+                el = soup.select_one(selector)
+                if el:
+                    price_str = el.get('content') or el.get_text(strip=True)
                     cleaned_price_str = re.sub(r'[^\d.]', '', price_str)
-                    
                     if cleaned_price_str:
                         try:
                             price = float(cleaned_price_str)
                             break
-                        except ValueError:
-                            continue
+                        except ValueError: continue
             
-            if title and "amazon" in title.lower() and len(title) < 20: return None
-            if title and "robot" in title.lower(): return None # Ignorar páginas de CAPTCHA
-            if title and price is not None: 
-                return {'title': title, 'price': price}
+            if title and "robot" in title.lower(): return None
+            if title and price is not None: return {'title': title, 'price': price}
         except Exception as e:
             print(f"Error extrayendo detalles del producto: {e}")
         return None
 
     def _download_image(self, img_url):
         try:
-            img_response = self.session.get(img_url, timeout=10, stream=True)
+            img_response = self.session.get(img_url, timeout=15, stream=True)
             img_response.raise_for_status()
             if 'image' in img_response.headers.get('Content-Type', ''):
                 img_id = str(uuid.uuid4())[:8]
-                path = urlparse(img_url).path
-                ext = os.path.splitext(path)[1] or '.jpg'
+                ext = os.path.splitext(urlparse(img_url).path)[1] or '.jpg'
                 clean_ext = re.sub(r'[^.a-zA-Z0-9]', '', ext)
                 if not clean_ext or len(clean_ext) > 5: clean_ext = '.jpg'
                 img_filename = f'extracted_{img_id}{clean_ext}'
                 img_path_fs = os.path.join(STATIC_IMAGES_FOLDER, img_filename)
                 with open(img_path_fs, 'wb') as f:
                     for chunk in img_response.iter_content(1024): f.write(chunk)
-                return {'web_path': url_for('static', filename=f'images/{img_filename}'),
-                        'filesystem_path': img_path_fs}
+                return {'web_path': url_for('static', filename=f'images/{img_filename}'), 'filesystem_path': img_path_fs}
         except Exception as e:
             print(f"No se pudo descargar la imagen {img_url}: {e}")
         return None
 
     def _extract_images(self, soup, base_url):
-        # Se añade un selector más específico para la imagen principal de Walmart.
-        main_img_selectors = [
-            'div.w_V_x_ img',            # Walmart Main Image
-            '#landingImage',             # Amazon Main Image
-            '#imgTagWrapperId img',      # Amazon Alt
-            'meta[property="og:image"]'  # Generic Fallback (muy fiable)
-        ]
+        main_img_selectors = ['div.w_V_x_ img', '#landingImage', '#imgTagWrapperId img', 'meta[property="og:image"]']
         for selector in main_img_selectors:
             img_tag = soup.select_one(selector)
             if img_tag:
@@ -139,43 +105,38 @@ class WebDataExtractor:
                     img_url = urljoin(base_url, src)
                     img_info = self._download_image(img_url)
                     if img_info: return [img_info]
-        
-        for img_tag in soup.find_all('img', limit=20):
-            src = img_tag.get('data-src') or img_tag.get('src')
-            if not src or src.startswith('data:image'): continue
-            if any(keyword in src.lower() for keyword in
-                   ['logo', 'icon', 'spinner', 'loader', 'pixel', 'badge', 'avatar', 'ad', 'banner', 'svg']): continue
-            try:
-                width = int(re.sub(r'\D', '', str(img_tag.get('width', '0'))))
-                height = int(re.sub(r'\D', '', str(img_tag.get('height', '0'))))
-                if width < 150 or height < 150: continue
-            except (ValueError, TypeError): pass
-            img_url = urljoin(base_url, src)
-            img_info = self._download_image(img_url)
-            if img_info: return [img_info]
         return []
 
     def extract_web_data(self, url):
+        # --- ESTA ES LA SECCIÓN MODIFICADA ---
+        API_KEY = os.environ.get('SCRAPER_API_KEY')
+        if not API_KEY:
+            return {'error': 'ScraperAPI key not configured on the server.', 'status': 'error'}
+
+        # Construimos la petición a ScraperAPI
+        scraper_url = 'http://api.scraperapi.com'
+        payload = {'api_key': API_KEY, 'url': url}
+
         try:
-            parsed_url = urlparse(url)
-            clean_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
-            response = self.session.get(clean_url, timeout=30)
+            response = requests.get(scraper_url, params=payload, timeout=60) # Timeout más largo
             response.raise_for_status()
 
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            if "robot or human" in response.text.lower():
-                return {'error': 'Blocked by CAPTCHA. The site is protecting itself from scrapers.', 'status': 'error'}
+            soup = BeautifulSoup(response.content, 'lxml') # Usamos lxml que es más robusto
 
-            data = {'url': url, 'title': self._extract_title(soup), 'description': self._extract_description(soup),
-                    'images': self._extract_images(soup, url), 'product_details': self._extract_product_details(soup),
-                    'status': 'success'}
+            data = {
+                'url': url, 
+                'title': self._extract_title(soup), 
+                'description': self._extract_description(soup),
+                'images': self._extract_images(soup, url), 
+                'product_details': self._extract_product_details(soup),
+                'status': 'success'
+            }
             return data
         except requests.exceptions.RequestException as e:
-            return {'error': f'Network error or invalid URL: {str(e)}', 'status': 'error'}
+            return {'error': f'Network error or failed request to ScraperAPI: {str(e)}', 'status': 'error'}
         except Exception as e:
-            return {'error': f'Unexpected error: {str(e)}', 'status': 'error'}
-
+            return {'error': f'Unexpected error during scraping: {str(e)}', 'status': 'error'}
+    
     def _extract_title(self, soup):
         og_title = soup.find('meta', property='og:title')
         if og_title: return og_title.get('content', 'Untitled').strip()
@@ -188,7 +149,7 @@ class WebDataExtractor:
         return meta_desc.get('content', 'No description.').strip() if meta_desc else 'No description.'
 
 
-# --- Clase para Generar Cotizaciones en PDF ---
+# --- Clase para Generar Cotizaciones en PDF (SIN CAMBIOS) ---
 class QuoteGenerator:
     """Clase para generar cotizaciones profesionales en formato PDF."""
     def __init__(self):
@@ -242,7 +203,7 @@ class QuoteGenerator:
                             item_image = 'N/A'
                     table_data.append([item_image, description_p, str(quantity), f"${price:,.2f}", f"${total_item:,.2f}"])
                 items_table = Table(table_data, colWidths=[0.7 * inch, 3.1 * inch, 0.7 * inch, 1 * inch, 1 * inch], repeatRows=1)
-                items_table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#34495e')), ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke), ('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'), ('FONTSIZE', (0, 0), (-1, 0), 10), ('BOTTOMPADDING', (0, 0), (-1, 0), 12), ('TOPPADDING', (0, 0), (-1, 0), 12), ('GRID', (0, 0), (-1, -1), 0.5, colors.grey), ('ALIGN', (1, 1), (1, -1), 'LEFT'), ('ALIGN', (2, 1), (-1, -1), 'RIGHT'), ('PADDING', (0, 0), (-1, -1), 5)]))
+                items_table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#34495e')), ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitespoke), ('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'), ('FONTSIZE', (0, 0), (-1, 0), 10), ('BOTTOMPADDING', (0, 0), (-1, 0), 12), ('TOPPADDING', (0, 0), (-1, 0), 12), ('GRID', (0, 0), (-1, -1), 0.5, colors.grey), ('ALIGN', (1, 1), (1, -1), 'LEFT'), ('ALIGN', (2, 1), (-1, -1), 'RIGHT'), ('PADDING', (0, 0), (-1, -1), 5)]))
                 story.append(items_table)
                 discount = float(quote_data.get('discount', 0))
                 tax_rate = float(quote_data.get('tax_rate', 7)) / 100
@@ -268,12 +229,11 @@ class QuoteGenerator:
             traceback.print_exc()
             raise
 
-
 # --- Instancias globales ---
 extractor = WebDataExtractor()
 quote_gen = QuoteGenerator()
 
-# --- Template HTML con JavaScript ---
+# --- Template HTML con JavaScript (SIN CAMBIOS) ---
 HTML_TEMPLATE = r"""
 <!DOCTYPE html>
 <html lang="en">
